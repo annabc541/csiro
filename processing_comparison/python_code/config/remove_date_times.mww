@@ -1,0 +1,69 @@
+Start Date	End Date	Reason
+2014-01-30 23:00:00	2014-01-30 23:59:59	Power went off
+2014-02-11 15:59:59	2014-02-11 17:10:00	Changed oxygen cylinder
+2014-05-11 16:50:00	2014-05-16 15:59:59	Changed oxygen cylinder - look into this timeslot
+2014-06-17 14:30:00	2014-07-02 15:59:59	Field campaign – Chris talked about there might have been made some repairs during the field campaign???
+2014-08-18 04:00:00	2014-08-20 22:59:59	Manifold pump broken
+2014-08-21 14:00:00	2014-08-22 01:59:59	Soldering outside the container
+2014-09-24 00:00:00	2014-11-07 23:59:59	Leak from ozone pump
+2014-11-22 05:00:00	2014-12-08 23:59:59	Investigate this one!!!
+2014-12-15 16:00:00	2014-12-15 21:59:59	Maintenance
+2015-01-11 08:00:00	2015-01-11 18:00:00	Leak checked manifold
+2015-01-12 15:00:00	2015-01-12 16:00:00	Manifold open
+2015-01-13 18:00:00	2015-01-27 12:00:00	Started running on two channels to measure NOy
+2015-01-26 15:00:00	2015-01-27 12:00:00	Power problem
+2015-04-03 03:00:00	2015-05-04 19:30:00	BLC changed
+2015-04-07 02:00:00	2015-04-15 23:00:00	Manifold open several times
+2015-05-21 09:00:00	2015-05-21 21:00:00	Manifold open
+2015-05-22 09:00:00	2015-05-22 19:00:00	Manifold open
+2015-05-27 09:00:00	2015-05-27 20:00:00	Electrical problem
+2015-07-10 12:00:00	2015-07-10 20:00:00	Manifold open
+2015-07-11 19:00:00	2015-07-13 14:00:00	Power problem
+2015-08-24 21:00:00	2015-08-26 09:00:00	Power problem
+2015-08-27 18:00:00	2015-08-28 13:00:00	Power problem
+2015-08-31 12:00:00	2015-09-03 03:00:00	Turned off due to potential huricane
+2015-09-14 02:00:00	2015-09-14 21:00:00	Power problem
+2015-09-28 04:00:00	2015-09-30 13:00:00	Power problem
+2015-10-02 04:00:00	2015-10-06 00:00:01	Circuit break
+2015-11-19 12:00:00	2015-11-19 19:00:00	Installation of HONO instrument???
+2015-12-22 10:00:00	2015-12-22 18:00:00	Power problem
+2015-12-29 06:00:00	2015-12-31 13:00:00	Power problem
+2016-01-08 08:00:00	2016-02-11 23:59:59	Inlet moved to 30m tower
+2016-03-28 08:00:00	2016-05-17 17:59:59	Inlet moved to 30m tower
+2016-05-23 00:00:00	2016-07-05 00:00:00	Ozone leak
+2016-07-07 00:00:00	2016-07-23 00:00:00	No data recorded
+2016-09-07 08:00:00	2016-09-09 18:14:59	Heated manifold lines were off
+2016-09-12 02:00:00	2016-10-02 19:59:59	Power problem
+2016-11-14 08:00:00	2016-11-18 23:00:01	Ozone leak
+2017-03-18 00:00:01	2017-03-19 00:00:00	Implementing diode to the system
+2017-04-03 00:00:01	2017-05-26 14:00:00	Ozone leak
+2017-08-11 16:15:00	2017-08-11 18:00:00	Truck moving container outside
+2017-09-07 16:45:00	2017-09-07 18:15:00	Truck dropping off two containers outside
+2017-10-17 17:00:00	2017-10-17 19:30:00	Filter changed
+2017-11-10 00:00:00	2017-11-17 00:00:00	Freya at the site
+2018-02-16 12:00:00	2018-02-28 12:00:00	Power problem - look into timeslot!!!
+2018-04-09 15:00:00	2018-04-09 17:00:00	Filter changed
+2018-04-19 15:30:00	2018-04-19 16:30:00	Manifold pump turned off
+2018-04-24 14:00:00	2018-04-24 15:00:00	Manifold pump turned off
+2018-06-10 00:00:00	2018-06-23 00:00:00	Missing data, data removed between good cals
+2018-09-10 00:00:00	2019-04-05 00:00:00	Broken powersupply, replaced in November, followed by ozonizer breaking, replaced in early April
+2019-04-27 00:00:00	2019-06-07 00:00:00	Broken ozonizer
+2019-07-25 00:00:00	2019-08-14 00:00:00	Wet PMT
+2019-09-30 09:00:00	2019-10-07 00:00:00	Replacing the manifold
+2019-11-12 09:00:00	2019-11-27 00:00:00	Calibrating every 3 hours due to issues with cylinder
+2020-01-22 00:00:00	2020-02-01 00:00:00	Issues with oxygen generator
+2020-03-13 09:00:00	2020-04-10 00:00:00	Issues with oxygen generator
+2020-06-11 00:00:00	2020-06-22 00:00:00	Period with no calibration
+2020-09-09 09:00:00	2020-11-26 00:00:00	Issues with oxygen generator
+2022-02-01 08:00:00	2022-02-01 12:00:00	KCG MOWING AT STATION
+2022-02-02 00:00:00	2022-02-02 10:00:00	KCG UNKNOWN - O2 SUPPLY?
+2022-02-16 09:00:00	2022-02-16 16:00:00	KCG GENERATOR IN USE
+2022-04-04 09:00:00	2022-04-08 00:00:00	James, Simone, and Anna at the site working on NOxy
+2022-04-14 00:05:00	2022-04-14 16:30:00	Power cut and problems with vacuum pump - replaced with a spare
+2022-05-02 09:30:00	2022-05-02 21:30:00	Power cut
+2022-05-27 00:00:00	2022-06-13 15:30:00	Problems with PAG zero air supply
+2022-08-26 00:00:00	2022-09-22 09:00:00	Small pump not working well - big pump back on line
+2022-10-30 00:00:00	2022-11-02 09:00:00	Broken air con, temperature back to normal now
+2022-11-07 00:00:00	2023-01-31 09:00:00	Ozone leak followed by loss of signal, off until fixed
+2023-02-28 02:00:00	2023-02-28 16:00:00	Power cut
+2023-09-18 13:30:00	2023-09-19 19:00:00	Pump tip seals changed, pump fan not working properly
