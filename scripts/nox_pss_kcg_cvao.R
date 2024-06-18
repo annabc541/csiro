@@ -6,12 +6,24 @@ library(zoo)
 
 Sys.setenv(TZ='UTC')
 
-k = 1.8*10^-14 #rate constant for NO + O3 from Atkinson in cm3 molecule-1 s-1
+k_298 = 1.8*10^-14 #rate constant for NO + O3 from Atkinson in cm3 molecule-1 s-1
 #n/V =  p/RT = 1atm / (0.08206 L atm K-1 mol-1 * 298 K) = 0.0409 mol L-1 = 0.0409 * 10^-3 mol cm-3
 #nmol mol-1 * 10^-12 *  6.022 * 10^23 molecules mol-1 * 0.0409 * 10^-3 mol cm-3
 #2.46 * 10^7 molecules cm-3 conversion factor
 ppt_to_molecules_cm3 <- function(x){y = x * 2.46 * 10^19 * 10^-12}
 molecules_cm3_to_ppt <- function(x){y = x / ( 2.46 * 10^19 * 10^-12)}
+tidy_rle = function(rleObj){
+  
+  require(dplyr)
+  
+  rleDf = tibble(lengths = rleObj$lengths,
+                 values = rleObj$values) %>% 
+    mutate(idxStart = cumsum(c(1,lengths))[1:(nrow(.))],
+           idxEnd = cumsum(lengths))
+  
+  #
+  rleDf
+}
 
 # KCG data ----------------------------------------------------------------
 
@@ -66,12 +78,17 @@ nox_kcg = read.csv("data/Full_Ambient data_NOx_2405071232.csv") %>%
   
 df_list = list(nox_kcg,ch4_kcg,co_kcg,met_kcg,ozone_kcg,radon_kcg)
 
+#dbt is dry bulb temperature (I think) and is "usually thought of as air temperature" according to wiki
 kcg_dat = df_list %>% reduce(left_join,by = "date") %>% 
   #it looks like there was some instrumental issue in November
   mutate(no_ppt = ifelse(date > "2022-11-16" & date < "2022-11-24",NA_real_,no_ppt),
          no2_ppt = ifelse(date > "2022-11-16" & date < "2022-11-24",NA_real_,no2_ppt),
          nox_ppt = ifelse(date > "2022-11-16" & date < "2022-11-24",NA_real_,nox_ppt),
-         jno2_albedo = (1+ 0.07) * jno2_mean)
+         jno2_albedo = (1 + 0.07) * jno2_mean,
+         temp_k = mean_dbt + 273.15,
+         k = 1.4 * 10^-12 * exp(-1310/temp_k))
+
+remove(ch4_kcg,co_kcg,df_list,met_kcg,ozone_kcg,radon_kcg)
 
 # KCG baseline investigation ----------------------------------------------
 
@@ -89,9 +106,9 @@ kcg_dat_flagged = kcg_dat %>%
 #for filtering data as baseline only if the whole day has been baseline
 kcg_dat_baseline_days = kcg_dat_flagged %>% 
   mutate(doy = yday(date),
-         radon_wind_flag = ifelse(radon_wind_flag == "Radon & wind",1,0)) %>% 
+         radon_flag = ifelse(radon_flag == "Radon",1,0)) %>% 
   group_by(doy) %>% 
-  summarise(daily_baseline_flag = mean(radon_wind_flag))
+  summarise(daily_baseline_flag = mean(radon_flag))
 
 kcg_dat_day_flag = kcg_dat_flagged %>% 
   mutate(doy = yday(date)) %>% 
@@ -127,7 +144,7 @@ kcg_dat_day_flag %>%
 #        width = 29.21,
 #        units = "cm")
 
-#timeseries while baseline and non-baseline in differnt colours
+#timeseries while baseline and non-baseline in different colours
 kcg_dat_day_flag %>% 
   filter(radon_flag == "Radon") %>% 
   # filter(date > "2022-09-15" ) %>%
@@ -166,8 +183,11 @@ kcg_dat_day_flag %>%
 diurnal_kcg = kcg_dat_day_flag %>% 
   rename(NO_kcg = no_ppt,
          NO2_kcg = no2_ppt) %>% 
-  filter(radon_flag == "Radon") %>% 
-  # mutate(NO_corr = NO_kcg - 8) %>% #quick correction using nighttime value
+  filter(radon_flag == "Radon",
+         # NO_kcg < 200
+  ) %>% 
+  mutate(NO_filtered = ifelse(NO_kcg > 200,NA_real_,NO_kcg), #removing two points that are over 200 ppt
+         NO_corr = NO_filtered - 14.5) %>% #quick correction using nighttime value
   timeVariation(pollutant = c("NO_kcg"))
 
 diurnal_kcg_dat = diurnal_kcg$data$hour
@@ -206,10 +226,12 @@ nox_cvao = read.csv("data/cvao_nox2022.csv") %>%
 cvao_dat = read.csv("data/20240507_CV_merge.csv") %>% 
   clean_names() %>% 
   filter(year == 2022) %>% 
-  mutate(date = ymd_hms(date)) %>% 
+  mutate(date = ymd_hms(date),
+         temp_k = temp_10m_deg_c + 273.15,
+         k = 1.4 * 10^-12 * exp(-1310/temp_k)) %>% 
   rename_with(~str_remove(.,".v$")) %>% 
   select(date,sahara:south_atlantic,o3_ppb,co_ppb,ch4_ppb = ch4_revised_ppb,co2_ppm = co2_revised_ppm,
-         jno2_calc,j_no2,temp_10m_deg_c) %>% 
+         jno2_calc,j_no2,temp_10m_deg_c,temp_k,k) %>% 
   left_join(nox_cvao,by = "date") %>% 
   select(date,no_ppt:no2_lod_ppt,no_flag:no2_u_ppt,everything(),-o3)
 
@@ -292,7 +314,8 @@ diurnal_cvao = cvao_dat %>%
   timeVariation(pollutant = c("NO_cvao"))
 
 diurnal_cvao_dat = diurnal_cvao$data$hour %>% 
-  mutate(hour = hour + 1,
+  #changes hour to be in local time rather than UTC
+  mutate(hour = hour - 1,
          hour = ifelse(hour == 24,0,hour)) %>%
   arrange(hour)
 
@@ -312,6 +335,9 @@ diurnal_cvao_dat %>%
 
 # KCG and CVAO diurnals together ------------------------------------------
 
+#choose what pollutant to plot for kcg (all no, no without points above 200ppt, no with offset correction)
+#if you just plot kcg data on its own, it will have a gap between 1am and 5am because that's when they cal
+
 diurnal_dat_no = diurnal_cvao_dat %>% 
   rename_with( .fn = function(.x){paste0(.x,"_cvao")},
                .cols=-hour) %>% 
@@ -322,25 +348,22 @@ diurnal_dat_no %>%
          CVAO = Mean_cvao) %>% 
   pivot_longer(c(KCG,CVAO)) %>% 
   ggplot(aes(hour,value,col = name)) +
-  geom_path(size = 2) +
+  geom_path(size = 1) +
   theme_bw() +
   labs(x = "Hour of day",
-       y = expression(NO[x]~(ppt)),
+       y = expression(NO~(ppt)),
        color = NULL) +
   scale_colour_manual(values = c("CVAO" = "darkorange","KCG" = "steelblue1")) +
   scale_x_continuous(breaks = c(0,4,8,12,16,20)) +
-  theme(axis.title = element_text(size = 28),
-        strip.text = element_text(size = 28),
-        axis.text = element_text(size = 20),
-        legend.position = "top",
-        legend.text = element_text(size = 20)) +
+  theme(legend.position = "top") +
   NULL
 
-# ggsave("no_diurnal_corr.svg",
-#        path = "actris_plots",
-#        height = 15,
-#        width = 15,
+# ggsave("no_diurnal_both.svg",
+#        path = "output/kcg_cvao_measurements",
+#        height = 12.5,
+#        width = 10.5,
 #        units = "cm")
+
 
 # CVAO PSS ----------------------------------------------------------------
 
@@ -348,13 +371,13 @@ cvao_pss = cvao_dat %>%
   mutate(o3_molecule_cm3 = ppt_to_molecules_cm3(o3_ppb * 1000),
          hour = hour(date),
          no_ppt = ifelse(no_flag < 0.15,no_ppt,NA_real_),
+         no2_ppt = ifelse(no2_flag < 0.15,no2_ppt,NA_real_),
          no_molecule_cm3 = ppt_to_molecules_cm3(no_ppt),
          no2_molecule_cm3 = ppt_to_molecules_cm3(no2_ppt),
-         no2_lifetime = (1/j_no2)/60,
-         temp_k = temp_10m_deg_c + 273.15,
-         k1 = 1.4 *10-12 * exp(-1310/temp_k)) %>% 
+         no2_lifetime = (1/j_no2)/60) %>% 
   filter(hour >= 11 & hour <= 15 ) %>% 
   mutate(no2_pss = molecules_cm3_to_ppt((o3_molecule_cm3*no_molecule_cm3*k)/j_no2),
+         # no2_pps_298 = molecules_cm3_to_ppt((o3_molecule_cm3*no_molecule_cm3*k_298)/j_no2),
          leighton_ratio = (j_no2*no2_molecule_cm3)/(k*o3_molecule_cm3*no_molecule_cm3))
 
 #no2 obs vs no2 pps
@@ -367,7 +390,7 @@ cvao_pss %>%
   labs(x = expression(NO[2~Obs]~(ppt)),
        y = expression(NO[2~PSS]~(ppt))) +
   geom_abline(slope = 1,intercept = 0,col = "steelblue1",size = 1) +
-  geom_abline(slope = 0.49,intercept = -2.84,col = "darkorange",size = 1) +
+  geom_abline(slope = 0.39,intercept = -1.71,col = "darkorange",size = 1) +
   NULL
 
 model = lm(no2_pss ~ no2_ppt,cvao_pss)
@@ -376,7 +399,7 @@ summary(model)
 #coloured by no2 photolysis lifetime
 cvao_pss %>% 
   mutate(no2_lifetime = (1/j_no2)/60) %>% 
-  filter(no2_lifetime <= 10) %>% 
+  # filter(no2_lifetime <= 10) %>% 
   ggplot(aes(no2_ppt,no2_pss,col = no2_lifetime)) +
   theme_bw() +
   geom_point() +
@@ -387,38 +410,48 @@ cvao_pss %>%
        col = expression(NO[2]~photolysis~lifetime~(min))
        ) +
   geom_abline(slope = 1,intercept = 0,col = "steelblue1",size = 1) +
-  geom_abline(slope = 0.49,intercept = -2.84,col = "darkorange",size = 1) +
+  geom_abline(slope = 0.39,intercept = -1.71,col = "darkorange",size = 1) +
   scale_colour_viridis_c() +
   NULL
 
-ggsave("cvao_no2_pss_lifetime.svg",
-       path = "output/cvao_no2_pss",
-       height = 12.09,
-       width = 16.43,
-       units = "cm")
+# ggsave("cvao_no2_pss_lifetime.svg",
+#        path = "output/cvao_no2_pss",
+#        height = 12.09,
+#        width = 16.43,
+#        units = "cm")
 
 # KCG PSS -----------------------------------------------------------------
 
-kcg_pss = kcg_dat_day_flag %>% 
+#using zeroed here, this is data that has used nighttime No to correct for NO offset
+#can run by just plotting kcg_dat_flagged for uncorrected data, need to remove extra columns for corr and
+#uncorr no2_pss values - was comparing these two
+kcg_pss = zeroed %>% 
   mutate(o3_molecule_cm3 = ppt_to_molecules_cm3(o3_ppb * 1000),
          hour = hour(date),
          no_molecule_cm3 = ppt_to_molecules_cm3(no_ppt),
+         no_molecule_cm3_corr = ppt_to_molecules_cm3(no_corr),
          no2_molecule_cm3 = ppt_to_molecules_cm3(no2_ppt),
          no2_lifetime = (1/jno2_albedo)/60) %>% 
   filter(hour >= 10 & hour <= 14,
          # no_ppt >0
   ) %>%
-  mutate(no2_pss_albedo = molecules_cm3_to_ppt((o3_molecule_cm3*no_molecule_cm3*k)/jno2_albedo),
-         no2_pss = molecules_cm3_to_ppt((o3_molecule_cm3*no_molecule_cm3*k)/jno2_median),
+  mutate(no2_pss_corr = molecules_cm3_to_ppt((o3_molecule_cm3*no_molecule_cm3_corr*k)/jno2_albedo),
+         no2_pss = molecules_cm3_to_ppt((o3_molecule_cm3*no_molecule_cm3*k)/jno2_albedo),
          leighton_ratio = (jno2_albedo*no2_molecule_cm3)/(k*o3_molecule_cm3*no_molecule_cm3))
 
 kcg_pss %>% 
   mutate(wind_flag = ifelse(scalar_mean_ws10 >= 20 & vector_mean_wd10 >= 190 & vector_mean_wd10 <= 280,
-                            "Wind & radon","Just radon")) %>% 
+                            "Wind & radon","Just radon"),
+         no2_lifetime = (1/jno2_albedo)/60) %>% 
   filter(radon_flag == "Radon",
-         # no2_ppt < 200
+         no2_lifetime <= 10,
+         no2_ppt < 200,
+         # date < "2022-09-12"
          ) %>% 
-  ggplot(aes(no2_ppt,no2_pss_albedo,col = wind_flag)) +
+  rename(Corrected = no2_pss_corr,
+         Uncorrected = no2_pss) %>% 
+  pivot_longer(c(Corrected,Uncorrected)) %>% 
+  ggplot(aes(no2_ppt,value,col = name)) +
   geom_point() +
   theme_bw() +
   labs(x = expression(NO[2~Obs]~(ppt)),
@@ -440,18 +473,19 @@ kcg_pss %>%
                             TRUE ~ "Summer (DJF)")) %>% 
   filter(radon_flag == "Radon",
          no2_ppt < 200,
-         no2_lifetime <= 10) %>% 
+         no2_lifetime <= 10
+         ) %>% 
   ggplot(aes(no2_ppt,no2_pss_albedo,col = season)) +
   geom_point() +
   theme_bw() +
   labs(x = expression(NO[2~Obs]~(ppt)),
        y = expression(NO[2~PSS]~(ppt)),
-       col = NULL
+       # col = expression(NO[2]~photolysis~lifetime~(min))
        ) +
   geom_abline(intercept = 0, slope = 1) +
   facet_wrap(~season) +
   # theme(legend.position = "top") +
-  # scale_colour_viridis_c() +
+  scale_colour_viridis_c() +
   scale_colour_manual(values = c("Autumn (MAM)" = "darkorange",
                                  "Winter (JJA)" = "steelblue1",
                                  "Spring (SON)" = "springgreen4",
@@ -463,11 +497,11 @@ kcg_pss %>%
 model = lm(no2_pss ~ no2_ppt,cvao_pss)
 summary(model)
 
-ggsave("kcg_no2_pss_seasonal.svg",
-       path = "output/kcg_no2_pss",
-       height = 12.09,
-       width = 29.21,
-       units = "cm")
+# ggsave("kcg_no2_pss_corrected.svg",
+#        path = "output/kcg_offsets",
+#        height = 12.09,
+#        width = 29.21,
+#        units = "cm")
 
 
 # Comparing jno2 at the two sites -----------------------------------------
@@ -525,9 +559,71 @@ diurnal_jno2_dat %>%
   # scale_x_continuous(breaks = c(0,4,8,12,16,20)) +
   # ylim(-1,13) +
   theme(legend.position = "top")
+# 
+# ggsave("jno2_diurnals.svg",
+#        path = "output/kcg_cvao_measurements",
+#        height = 12.09,
+#        width = 29.21,
+#        units = "cm")
 
-ggsave("jno2_diurnals.svg",
-       path = "output/kcg_cvao_measurements",
-       height = 12.09,
-       width = 29.21,
-       units = "cm")
+
+# Quick calculation of NO offset using baseline nighttime values ----------
+
+kcg_offset_corr = kcg_dat_flagged %>% 
+  mutate(hour = hour(date),
+         night_flag = ifelse(radon_wind_flag == "Radon & wind" & hour <= 2 | 
+                               radon_wind_flag == "Radon & wind" & hour >= 23,1,0))
+
+#creates a group for each baseline night and maintains row no. of main df so can easily left_join
+night = rle(kcg_offset_corr$night_flag) %>%
+  tidy_rle() %>% 
+  filter(values == 1) %>% 
+  mutate(id = 1:nrow(.)) %>% 
+  as.list() %>% 
+  purrr::pmap_df(~data.frame(idx = ..3:..4,id = ..5)) %>% 
+  tibble() 
+
+#join dfs with groups for each baseline night
+nights_grouped = kcg_offset_corr %>% 
+  mutate(idx = 1:nrow(.)) %>% 
+  left_join(night, "idx") %>% #joins two dfs by their row number
+  mutate(id = ifelse(is.na(id), 0, id)) #makes id (group) = 0 when not zeroing
+
+#average NO value for each group
+night_avg = nights_grouped %>% 
+  filter(id != 0) %>%
+  group_by(id) %>% 
+  summarise(no_night_mean = mean(no_ppt,na.rm = T)) %>% 
+  ungroup()
+
+#interpolate between nights and subtract offset from measurements
+zeroed = nights_grouped %>%
+  left_join(night_avg) %>% 
+  mutate(no_night_mean_interpolated = na.approx(no_night_mean,na.rm = F)) %>% 
+  fill(no_night_mean_interpolated,.direction = "updown") %>% 
+  mutate(no_corr = no_ppt - no_night_mean_interpolated)
+
+zeroed %>% 
+  mutate(month = month(date)) %>%
+  filter(
+    # month == 9,
+         date > "2022-09-12" 
+         ) %>%
+  rename(Uncorrected = no_ppt, Corrected = no_corr) %>%
+  pivot_longer(c(Corrected,Uncorrected)) %>%
+  ggplot() +
+  theme_bw() +
+  geom_path(aes(date,value,col = name)) +
+  # geom_point(aes(date,no_night_mean),col = "red") +
+  labs(x = NULL,
+       y = "NO (ppt)",
+       col = NULL) +
+  theme(legend.position = "top") +
+  # scale_x_datetime(date_breaks = "1 month",date_labels = "%b %y") +
+  NULL
+# 
+# ggsave("baseline_night_no.svg",
+#        path = "output/kcg_offsets",
+#        height = 9.54,
+#        width = 29.21,
+#        units = "cm")
