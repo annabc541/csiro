@@ -6,7 +6,7 @@ library(zoo)
 
 Sys.setenv(TZ='UTC')
 
-k_298 = 1.8*10^-14 #rate constant for NO + O3 from Atkinson in cm3 molecule-1 s-1
+# k_298 = 1.8*10^-14 #rate constant for NO + O3 from Atkinson in cm3 molecule-1 s-1
 #n/V =  p/RT = 1atm / (0.08206 L atm K-1 mol-1 * 298 K) = 0.0409 mol L-1 = 0.0409 * 10^-3 mol cm-3
 #nmol mol-1 * 10^-12 *  6.022 * 10^23 molecules mol-1 * 0.0409 * 10^-3 mol cm-3
 #2.46 * 10^7 molecules cm-3 conversion factor
@@ -80,10 +80,11 @@ df_list = list(nox_kcg,ch4_kcg,co_kcg,met_kcg,ozone_kcg,radon_kcg)
 
 #dbt is dry bulb temperature (I think) and is "usually thought of as air temperature" according to wiki
 kcg_dat = df_list %>% reduce(left_join,by = "date") %>% 
-  #it looks like there was some instrumental issue in November
-  mutate(no_ppt = ifelse(date > "2022-11-16" & date < "2022-11-24",NA_real_,no_ppt),
-         no2_ppt = ifelse(date > "2022-11-16" & date < "2022-11-24",NA_real_,no2_ppt),
-         nox_ppt = ifelse(date > "2022-11-16" & date < "2022-11-24",NA_real_,nox_ppt),
+  #Ian has looked at the data and recommended removing data between 16th and 30th November due to unknown
+  #instrumental issues
+  mutate(no_ppt = ifelse(date > "2022-11-16" & date < "2022-11-30",NA_real_,no_ppt),
+         no2_ppt = ifelse(date > "2022-11-16" & date < "2022-11-30",NA_real_,no2_ppt),
+         nox_ppt = ifelse(date > "2022-11-16" & date < "2022-11-30",NA_real_,nox_ppt),
          jno2_albedo = (1 + 0.07) * jno2_mean,
          temp_k = mean_dbt + 273.15,
          k = 1.4 * 10^-12 * exp(-1310/temp_k))
@@ -390,7 +391,7 @@ cvao_pss %>%
   labs(x = expression(NO[2~Obs]~(ppt)),
        y = expression(NO[2~PSS]~(ppt))) +
   geom_abline(slope = 1,intercept = 0,col = "steelblue1",size = 1) +
-  geom_abline(slope = 0.39,intercept = -1.71,col = "darkorange",size = 1) +
+  geom_abline(slope = 0.4,intercept = -1.89,col = "darkorange",size = 1) +
   NULL
 
 model = lm(no2_pss ~ no2_ppt,cvao_pss)
@@ -399,7 +400,7 @@ summary(model)
 #coloured by no2 photolysis lifetime
 cvao_pss %>% 
   mutate(no2_lifetime = (1/j_no2)/60) %>% 
-  # filter(no2_lifetime <= 10) %>% 
+  filter(no2_lifetime <= 10) %>%
   ggplot(aes(no2_ppt,no2_pss,col = no2_lifetime)) +
   theme_bw() +
   geom_point() +
@@ -410,33 +411,34 @@ cvao_pss %>%
        col = expression(NO[2]~photolysis~lifetime~(min))
        ) +
   geom_abline(slope = 1,intercept = 0,col = "steelblue1",size = 1) +
-  geom_abline(slope = 0.39,intercept = -1.71,col = "darkorange",size = 1) +
+  geom_abline(slope = 0.4,intercept = -1.89,col = "darkorange",size = 1) +
   scale_colour_viridis_c() +
   NULL
 
-# ggsave("cvao_no2_pss_lifetime.svg",
-#        path = "output/cvao_no2_pss",
-#        height = 12.09,
-#        width = 16.43,
-#        units = "cm")
+ggsave("cvao_no2_pss_lifetime_filtered.svg",
+       path = "output/cvao_no2_pss",
+       height = 12.09,
+       width = 16.43,
+       units = "cm")
 
 # KCG PSS -----------------------------------------------------------------
 
 #using zeroed here, this is data that has used nighttime No to correct for NO offset
 #can run by just plotting kcg_dat_flagged for uncorrected data, need to remove extra columns for corr and
 #uncorr no2_pss values - was comparing these two
-kcg_pss = zeroed %>% 
+kcg_pss = kcg_dat_day_flag %>% 
   mutate(o3_molecule_cm3 = ppt_to_molecules_cm3(o3_ppb * 1000),
          hour = hour(date),
          no_molecule_cm3 = ppt_to_molecules_cm3(no_ppt),
-         no_molecule_cm3_corr = ppt_to_molecules_cm3(no_corr),
+         # no_molecule_cm3_corr = ppt_to_molecules_cm3(no_corr),
          no2_molecule_cm3 = ppt_to_molecules_cm3(no2_ppt),
          no2_lifetime = (1/jno2_albedo)/60) %>% 
   filter(hour >= 10 & hour <= 14,
+         radon_flag == "Radon"
          # no_ppt >0
   ) %>%
-  mutate(no2_pss_corr = molecules_cm3_to_ppt((o3_molecule_cm3*no_molecule_cm3_corr*k)/jno2_albedo),
-         no2_pss = molecules_cm3_to_ppt((o3_molecule_cm3*no_molecule_cm3*k)/jno2_albedo),
+  mutate(no2_pss = molecules_cm3_to_ppt((o3_molecule_cm3*no_molecule_cm3*k)/jno2_albedo),
+         # no2_pss_corr = molecules_cm3_to_ppt((o3_molecule_cm3*no_molecule_cm3_corr*k)/jno2_albedo),
          leighton_ratio = (jno2_albedo*no2_molecule_cm3)/(k*o3_molecule_cm3*no_molecule_cm3))
 
 kcg_pss %>% 
@@ -446,23 +448,25 @@ kcg_pss %>%
   filter(radon_flag == "Radon",
          no2_lifetime <= 10,
          no2_ppt < 200,
-         # date < "2022-09-12"
+         # date < "2022-09-12" | date > "2022-12-01"
          ) %>% 
-  rename(Corrected = no2_pss_corr,
-         Uncorrected = no2_pss) %>% 
-  pivot_longer(c(Corrected,Uncorrected)) %>% 
-  ggplot(aes(no2_ppt,value,col = name)) +
+  # rename(Corrected = no2_pss_corr,
+  #        Uncorrected = no2_pss) %>%
+  # pivot_longer(c(Corrected,Uncorrected)) %>%
+  ggplot(aes(no2_ppt,no2_pss)) +
   geom_point() +
   theme_bw() +
   labs(x = expression(NO[2~Obs]~(ppt)),
        y = expression(NO[2~PSS]~(ppt)),
        col = NULL) +
-  geom_abline(intercept = 0, slope = 1) +
+  geom_abline(slope = 1,intercept = 0,col = "steelblue1",size = 1) +
+  geom_abline(slope = 0.4,intercept = -1.89,col = "darkorange",size = 1) +
   theme(legend.position = "top") +
   # scale_colour_viridis_c() +
   NULL
 
-#colour coded by lifetime
+#create column for seasons and hours (distance from 12) to see if discrepancies were due to these
+#it doesn't look like they were
 kcg_pss %>% 
   mutate(no2_lifetime = (1/jno2_albedo)/60,
          doy = yday(date),
@@ -470,37 +474,55 @@ kcg_pss %>%
          season = case_when(month >= 3 & month <= 5 ~ "Autumn (MAM)",
                             month >= 6 & month <= 8 ~ "Winter (JJA)",
                             month >= 9 & month <= 11 ~ "Spring (SON)",
-                            TRUE ~ "Summer (DJF)")) %>% 
+                            month == 12 | month <= 2 ~ "Summer (DJF)"),
+         times = case_when(hour == 10 | hour == 14 ~ "10 or 14",
+                           hour == 11 | hour == 13 ~ "11 or 13",
+                           hour == 12 ~ "12")) %>% 
   filter(radon_flag == "Radon",
+         season == "Spring (SON)",
+         # month == 12,
          no2_ppt < 200,
-         no2_lifetime <= 10
+         no2_lifetime <= 10,
+         # leighton_ratio > 0
          ) %>% 
-  ggplot(aes(no2_ppt,no2_pss_albedo,col = season)) +
+  ggplot(aes(no2_ppt,no2_pss,col = as.character(month))) +
   geom_point() +
   theme_bw() +
   labs(x = expression(NO[2~Obs]~(ppt)),
        y = expression(NO[2~PSS]~(ppt)),
        # col = expression(NO[2]~photolysis~lifetime~(min))
        ) +
-  geom_abline(intercept = 0, slope = 1) +
+  geom_abline(slope = 1,intercept = 0,size = 1) +
+  # geom_abline(slope = 0.4,intercept = -1.89,col = "darkorange",size = 1) +
+  # geom_abline(slope = 0.5,intercept = -3.24,col = "red",size = 1) +
   facet_wrap(~season) +
   # theme(legend.position = "top") +
-  scale_colour_viridis_c() +
-  scale_colour_manual(values = c("Autumn (MAM)" = "darkorange",
-                                 "Winter (JJA)" = "steelblue1",
-                                 "Spring (SON)" = "springgreen4",
-                                 "Summer (DJF)" = "gold"
-                                 )) +
-  theme(legend.position = "none")
+  scale_colour_viridis_d() +
+  # scale_colour_manual(values = c("Autumn (MAM)" = "darkorange",
+  #                                "Winter (JJA)" = "steelblue1",
+  #                                "Spring (SON)" = "springgreen4",
+  #                                "Summer (DJF)" = "gold"
+  #                                )) +
+  # theme(legend.position = "none") +
   NULL
 
-model = lm(no2_pss ~ no2_ppt,cvao_pss)
+#df with only summer data to examine the data and see what slope and intercept are for this data
+summer_kcg_pss = kcg_pss %>%
+  mutate(month = month(date),
+         season = case_when(month >= 3 & month <= 5 ~ "Autumn (MAM)",
+                            month >= 6 & month <= 8 ~ "Winter (JJA)",
+                            month >= 9 & month <= 11 ~ "Spring (SON)",
+                            TRUE ~ "Summer (DJF)")) %>% 
+  filter(season == "Summer (DJF)",
+         radon_flag == "Radon")
+
+model = lm(no2_pss ~ no2_ppt,summer_kcg_pss)
 summary(model)
 
-# ggsave("kcg_no2_pss_corrected.svg",
-#        path = "output/kcg_offsets",
+# ggsave("kcg_no2_pss_cvao_line_filtered.svg",
+#        path = "output/kcg_no2_pss",
 #        height = 12.09,
-#        width = 29.21,
+#        width = 16.43,
 #        units = "cm")
 
 
