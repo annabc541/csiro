@@ -1,5 +1,4 @@
 library(tidyverse)
-library(lubridate)
 library(janitor)
 library(openair)
 library(zoo)
@@ -29,18 +28,18 @@ tidy_rle = function(rleObj){
 
 #in ppb - new ozone that has been submitted to WDC but hasn't yet been through QA/QC, so may still change
 #have checked this against old ozone dataset I was sent, this ozone is the same as teco6
-ozone_kcg = read.csv("data/CapeGrimOzone_Hourly_BiPM_2022.csv") %>% 
+ozone_kcg = read.csv("data/kcg_data/CapeGrimOzone_Hourly_BiPM_2022.csv") %>% 
   mutate(date = dmy_hm(Timestamps),
          o3_ppb = ifelse(Status == 0, NA_real_,Mean..ppb.)) %>% 
   select(date,o3_ppb)
 
 #met contains jno2, which is the same as jno2 in jno2 dataset
-met_kcg = read.csv("data/KCG_LR_Supp_Data_2022_240506.csv") %>% 
+met_kcg = read.csv("data/kcg_data/KCG_LR_Supp_Data_2022_240506.csv") %>% 
   clean_names() %>% 
   mutate(date = dmy_hm(date))
 
 #bl_flag is the baseline flag, 0 is baseline, 1 is non-baseline and 9 is baseline not determined
-co_kcg = read.table("data/cgo_picarro_1_60min_co_all_blflagged.dat",skip = 6,header = TRUE) %>% 
+co_kcg = read.table("data/kcg_data/cgo_picarro_1_60min_co_all_blflagged.dat",skip = 6,header = TRUE) %>% 
   clean_names() %>% 
   mutate(date = paste(yyyy,mm,dd),
          date = gsub(" ","-",date),
@@ -51,7 +50,7 @@ co_kcg = read.table("data/cgo_picarro_1_60min_co_all_blflagged.dat",skip = 6,hea
   rename_with(.fn = function(.x){paste0("co_",.x)},
               .cols = c(sd_ppb:bl_flag))
 
-ch4_kcg = read.table("data/cgo_picarro_1_60min_ch4_all_blflagged.dat",skip = 6,header = TRUE) %>% 
+ch4_kcg = read.table("data/kcg_data/cgo_picarro_1_60min_ch4_all_blflagged.dat",skip = 6,header = TRUE) %>% 
   clean_names() %>% 
   mutate(date = paste(yyyy,mm,dd),
          date = gsub(" ","-",date),
@@ -62,34 +61,43 @@ ch4_kcg = read.table("data/cgo_picarro_1_60min_ch4_all_blflagged.dat",skip = 6,h
   rename_with(.fn = function(.x){paste0("ch4_",.x)},
               .cols = c(sd_ppb:bl_flag))
 
-radon_kcg = read.csv("data/CG_radon_2022_startofhour.csv") %>% 
+radon_kcg = read.csv("data/kcg_data/CG_radon_2022_startofhour.csv") %>% 
   clean_names() %>% 
   mutate(date = dmy_hm(date),
          radon = ifelse(radon < 0,NA_real_,radon)) %>% 
   select(date,radon)
 
-nox_kcg = read.csv("data/Full_Ambient data_NOx_2405071232.csv") %>% 
+nox_kcg1 = read.csv("data/kcg_data/Full_Ambient data_NOx_2405071232.csv") %>% 
   clean_names() %>% 
   mutate(date = dmy_hm(date_time)) %>% 
   select(date,no_ppt = no,no2_ppt = no2,nox_ppt = n_ox)
 
+#for no two different calculations to determine inlet losses (ozone correction)
+#no_ppt1 refers to data corrected in the same way as York data
+#no_ppt2 refers to data corrected by doubling it (using NO cal gas - not fully sure how this is done yet)
+nox_kcg2 = read.csv("data/kcg_data/2022KCGAmbient_NO2&NO_V9_York_2411051919.csv") %>% 
+  clean_names() %>% 
+  mutate(date = dmy_hm(timestamp)) %>% 
+  select(date,o3_ppb_nox = o3,no_ppt_corr1 = no_corr_il1,no_ppt_corr2 = no_corr_il2,no2_ppt_corr = no2ilc)
+
 # jno2_kcg = read.csv("data/jno2_22.csv") %>% 
 #   mutate(date = as.POSIXct(date, format="%Y%m%d %H:%M:%S"))
   
-df_list = list(nox_kcg,ch4_kcg,co_kcg,met_kcg,ozone_kcg,radon_kcg)
+df_list = list(nox_kcg1,nox_kcg2,ch4_kcg,co_kcg,met_kcg,ozone_kcg,radon_kcg)
 
 #dbt is dry bulb temperature (I think) and is "usually thought of as air temperature" according to wiki
 kcg_dat = df_list %>% reduce(left_join,by = "date") %>% 
   #Ian has looked at the data and recommended removing data between 16th and 30th November due to unknown
   #instrumental issues
-  mutate(no_ppt = ifelse(date > "2022-11-16" & date < "2022-11-30",NA_real_,no_ppt),
-         no2_ppt = ifelse(date > "2022-11-16" & date < "2022-11-30",NA_real_,no2_ppt),
-         nox_ppt = ifelse(date > "2022-11-16" & date < "2022-11-30",NA_real_,nox_ppt),
-         jno2_albedo = (1 + 0.07) * jno2_mean,
+  mutate(jno2_albedo = (1 + 0.07) * jno2_mean,
          temp_k = mean_dbt + 273.15,
-         k = 1.4 * 10^-12 * exp(-1310/temp_k))
+         k = 1.4 * 10^-12 * exp(-1310/temp_k),
+         # no_ppt = ifelse(date > "2022-11-16" & date < "2022-11-30",NA_real_,no_ppt),
+         # no2_ppt = ifelse(date > "2022-11-16" & date < "2022-11-30",NA_real_,no2_ppt),
+         # nox_ppt = ifelse(date > "2022-11-16" & date < "2022-11-30",NA_real_,nox_ppt)
+         )
 
-remove(ch4_kcg,co_kcg,df_list,met_kcg,ozone_kcg,radon_kcg)
+remove(ch4_kcg,co_kcg,met_kcg,ozone_kcg,radon_kcg)
 
 # KCG baseline investigation ----------------------------------------------
 
