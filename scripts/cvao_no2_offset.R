@@ -133,37 +133,51 @@ nox2024 = read.csv("processing/processed_data/NOx_2024_calc_df.csv") %>%
 nox_only = bind_rows(nox2017,nox2018,nox2019,nox2020,nox2021,nox2022,nox2023,nox2024) %>% 
   arrange(date) %>% timeAverage("1 hour")
 
-nox_min_month = nox_only %>%
-  mutate(no2_diodes = ifelse(no2_diodes < 0, NA_real_,no2_diodes)) %>% 
-  timeAverage("1 month",statistic = "min") %>% 
+nox_min_day = nox_only %>%
+  mutate(no2_diodes = ifelse(no2_diodes <= 0, NA_real_,no2_diodes)) %>% 
+  timeAverage("1 day",statistic = "min") %>% 
   mutate(no2_diodes_min = case_when(no2_diodes == Inf ~ NA_real_,
                                     TRUE ~ no2_diodes)) %>% 
   select(date,no2_diodes_min)
 
+nox_min_month = nox_min_day %>%
+  timeAverage("1 month",statistic = "min") %>% 
+  mutate(no2_diodes_min_month = case_when(no2_diodes_min == Inf ~ NA_real_,
+                                    TRUE ~ no2_diodes_min)) %>% 
+  select(date,no2_diodes_min_month)
+
 nox_min_month %>% 
-  ggplot(aes(date,no2_diodes_min)) +
+  ggplot(aes(date,no2_diodes_min_month)) +
   theme_bw() +
-  geom_point() +
+  geom_point(col = "navy",size = 2.5) +
   labs(x = NULL,
-       y = expression(NO[2]~monthly~minima~(ppt)))
+       y = expression(NO[2]~monthly~minima~(ppt))) +
+  scale_x_datetime(date_breaks = "1 year",date_labels = "%Y") +
+  theme(text = element_text(size = 20))
+
+# ggsave('no2_monthly_minima.png',
+#        path = "~/Writing/Thesis/Chapter 2 (NOx processing)/Images",
+#        width = 29,
+#        height = 12,
+#        units = 'cm')
 
 nox_with_min = nox_only %>% 
   left_join(nox_min_month) %>% 
-  mutate(no2_diodes_min_inter = na.approx(no2_diodes_min,na.rm = F)) %>% 
+  mutate(no2_diodes_min_inter = na.approx(no2_diodes_min_month,na.rm = F)) %>% 
   # fill(no2_diodes_min,.direction = "downup") %>% 
   mutate(no2_diodes_corr_inter = no2_diodes - no2_diodes_min_inter,
-         no2_diodes_corr = no2_diodes - no2_diodes_min) %>% 
+         no2_diodes_corr = no2_diodes - no2_diodes_min_month) %>% 
   filter(date < "2024-11-01")
 
 nox_to_save = nox_with_min %>% 
   select(date,no = no_corrected,no2_uncorr = no2_diodes,no2_corr = no2_diodes_corr_inter,no2_diodes_min,CE_diode)
 
-write.csv(nox_to_save,"cvao_nox_corr.csv",row.names = F)
+# write.csv(nox_to_save,"cvao_nox_corr.csv",row.names = F)
 
 nox_with_min %>% 
   ggplot(aes(x = date)) +
   geom_path(aes(y = no2_diodes)) +
-  geom_point(aes(y = no2_diodes_min),col = "red") +
+  geom_point(aes(y = no2_diodes_min_month),col = "red") +
   ylim(0,200)
 
 nox_with_min %>% 
@@ -323,45 +337,45 @@ nox_min_month %>%
 
 # For calculating different statistics for different variables ------------
 
-nox_summarised = nox_hourly %>% 
+#getting the count soo days and months when less than half the values are available are discarded
+nox_min_day1 = nox_only %>% 
+  mutate(year = year(date),
+         month = month(date),
+         day = day(date),
+         no2_diodes = ifelse(no2_diodes <= 0, NA_real_,no2_diodes)) %>% 
+  group_by(day,month,year) %>% 
+  summarise(no2_diodes_min = min(no2_diodes,na.rm = T),
+            no2_diodes_count = sum(!is.na(no2_diodes))) %>% 
+  arrange(year,month,day) %>% 
+  ungroup() %>% 
+  mutate(date = glue::glue("{year}-{month}-{day}"),
+         date = ymd(date),
+         no2_diodes_min = case_when(no2_diodes_min == Inf ~ NA_real_,
+                                    no2_diodes_count < 12 ~ NA_real_,
+                                    TRUE ~ no2_diodes_min)) %>% 
+  select(date,no2_diodes_min)
+
+nox_min_day1 %>% 
+  ggplot(aes(date,no2_diodes_min)) +
+  geom_point() +
+  theme(legend.position = "top")
+
+nox_min_month1 = nox_min_day1 %>% 
   mutate(month = month(date),
-         year = year(date)) %>% 
-  filter(no2_blc_uncorrected > 0) %>% 
+         year = year(date)) %>%
   group_by(month,year) %>% 
-  summarise(no2_diodes = min(no2_diodes,na.rm = T),
-            no2_blc_uncorrected = min(no2_blc_uncorrected,na.rm = T),
-            no2_blc_pag = mean(no2_blc_pag,na.rm = T),
-            no2_diode_pag = mean(no2_diode_pag,na.rm = T)) %>% 
+  summarise(no2_diodes_min_month = min(no2_diodes_min,na.rm = T),
+            no2_diodes_count = sum(!is.na(no2_diodes_min)),
+            no2_diodes_offset_var = var(no2_diodes_min,na.rm = T)) %>% 
   arrange(year,month) %>% 
   mutate(day = 1,
          date = glue::glue("{year}-{month}-{day}"),
-         date = ymd(date)) %>% 
+         date = ymd(date),
+         no2_diodes_min_month = case_when(no2_diodes_min_month == Inf ~ NA_real_,
+                                          no2_diodes_count <= 14 ~ NA_real_,
+                                          TRUE ~ no2_diodes_min_month)) %>% 
   ungroup() %>% 
   select(date,everything(),-c(month,year,day))
-
-nox_summarised %>% 
-  rename(`Diodes minimum` = no2_diodes,
-         `BLC PAG measurement (corrected)` = no2_blc_pag,
-         `BLC minimum` = no2_blc_uncorrected,
-         `Diodes PAG measurement` = no2_diode_pag) %>% 
-  pivot_longer(c(`BLC minimum`,
-                 `BLC PAG measurement (corrected)`)) %>% 
-  filter(value != Inf) %>% 
-  ggplot(aes(date,value,col = name)) +
-  geom_point(size = 2.25) +
-  scale_colour_manual(values = c("steelblue1","maroon")) +
-  theme_bw() +
-  # ylim(0,15) +
-  labs(x = NULL,
-       y = expression(NO[2]~(ppt)),
-       col = NULL) +
-  theme(legend.position = "top")
-
-# ggsave("no2_blc_offsets_pag_mean.png",
-#        path = "~/csiro/output/cvao_no2_offsets",
-#        height = 12,
-#        width = 30,
-#        units = "cm")
 
 
 # Looking at higher nox in 2024? ------------------------------------------
@@ -415,25 +429,41 @@ nox_monthly %>%
   # facet_grid(rows = vars(year),scales = "free") +
   NULL
 
-myOutput = timeVariation(nox_with_min,pollutant = c("no2_blc_uncorrected"),group = "year")
+myOutput = timeVariation(nox_with_min,pollutant = c("no_corrected"),group = "year")
 
-dat = myOutput$data$month
+dat_uncorr = myOutput$data$month%>% 
+  select(mnth,no2_uncorr = Mean,variable) %>% 
+  ungroup()
+dat_no = myOutput$data$month%>% 
+  select(mnth,no = Mean,variable) %>% 
+  ungroup()
 
-dat %>% 
-  ungroup() %>% 
-  ggplot(aes(mnth,Mean,col = variable)) +
+dat_corr = myOutput$data$month %>% 
+  select(mnth,no2_corr = Mean,variable) %>% 
+  ungroup()
+
+dat_both = dat_uncorr %>% left_join(dat_no,by = c("mnth","variable"))
+
+dat_both %>%
+  rename(`NO[2]~uncorrected` = no2_uncorr,
+         NO = no) %>% 
+  pivot_longer(c(`NO[2]~uncorrected`,NO)) %>% 
+  ggplot(aes(mnth,value,col = variable)) +
   theme_bw() +
   geom_path(linewidth = 1) +
-  theme(legend.position = "top") +
+  facet_grid(rows = vars(name),labeller = label_parsed,scales = "free_y") +
+  theme(legend.position = "top",
+        text = element_text(size = 20)) +
   labs(x = NULL,
-       y = expression(NO[2]~diodes~(ppt)),
+       y = expression(NO[x]~(ppt)),
        col = NULL) +
   scale_colour_viridis_d() +
+  # scale_colour_manual(values = c("darkseagreen4","darkolivegreen","springgreen4","navy","steelblue1","firebrick","darkorange","goldenrod1")) +
   scale_x_continuous(breaks = c(1,2,3,4,5,6,7,8,9,10,11,12),
                      labels = c("Jan", "Feb", "Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"))
 
-# ggsave("no2_monthly_mean_comparison.png",
-#        path = "~/csiro/output/cvao_no2_offsets",
-#        height = 12,
-#        width = 30,
-#        units = "cm")
+ggsave('nox_monthly_means.png',
+       path = "~/Writing/Thesis/Chapter 2 (NOx processing)/Images",
+       width = 29,
+       height = 14,
+       units = 'cm')
