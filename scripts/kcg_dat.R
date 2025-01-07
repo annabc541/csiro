@@ -8,7 +8,6 @@ Sys.setenv(TZ='UTC')
 #definitive KCG code for plotting and analysis
 #for code comparing KCG and CVAO processing, look at work_done_at_csiro or thesis plots for chapter 5
 
-
 # Functions ---------------------------------------------------------------
 
 tidy_rle = function(rleObj){
@@ -100,7 +99,7 @@ remove(df_list,radon_kcg,met_kcg,ch4_kcg,co_kcg)
 
 night_zeroing = kcg_dat %>% 
   mutate(hour = hour(date),
-         night_flag = ifelse(hour > 21 | hour < 4,1,0))
+         night_flag = ifelse(hour > 22 | hour < 4,1,0))
 
 nights = rle(night_zeroing$night_flag) %>%
   tidy_rle() %>% 
@@ -120,8 +119,8 @@ night_avg = night_flagged %>%
          radon < 100) %>% 
   group_by(id) %>% 
   summarise(no_night = median(no_ppt,na.rm = T),
-            idx = mean(idx)) %>% 
-  mutate(idx = round(idx)) %>% 
+            idx = min(idx)) %>% 
+  mutate(idx = floor(idx)) %>% 
   ungroup()
 
 night_zeroed = night_zeroing %>% 
@@ -133,17 +132,107 @@ night_zeroed = night_zeroing %>%
 
 remove(night_avg,night_flagged,night_zeroing,nights)
 
-
 # Plotting ----------------------------------------------------------------
+
+#seeing if nighttime no correlates with anything
+night_zeroed %>% 
+  filter(is.na(no_night) == F,
+         scalar_mean_wd10 > 190 & scalar_mean_wd10 < 280,
+         scalar_mean_ws10 >= 20,
+         # no2_ppt_corr < 6
+         ) %>%
+  mutate(no_night = case_when(date >= "2022-02-01" & date < "2022-02-03" ~ NA_real_,
+                              date >= "2022-03-28" & date < "2022-03-30" ~ NA_real_,
+                              date >= "2022-04-28" & date < "2022-04-30" ~ NA_real_,
+                              date >= "2022-05-13" & date < "2022-05-15" ~ NA_real_,#diesel generator,low confidence cal
+                              date >= "2022-05-30" & date < "2022-06-07" ~ NA_real_,
+                              date >= "2022-07-19" & date < "2022-07-26" ~ NA_real_,#unknown
+                              date >= "2022-08-10" & date < "2022-08-11" ~ NA_real_,#inlet blockage
+                              date >= "2022-09-24" & date < "2022-09-25" ~ NA_real_,#inlet blockage
+                              date >= "2022-09-27" & date < "2022-09-28" ~ NA_real_,#inlet blockage
+                              date >= "2022-11-16" & date < "2022-11-30" ~ NA_real_,
+                              TRUE ~ no_night),
+         flag = case_when(scalar_mean_wd10 > 190 & scalar_mean_wd10 < 280 ~ "Radon and wind filter",
+                          scalar_mean_ws10 >= 20 ~ "Radon and wind filter",
+                          TRUE ~ "Radon filter"),
+         WD = ifelse(scalar_mean_wd10 < 0, NA_real_,scalar_mean_wd10),
+         `WS (km/h)` = ifelse(scalar_mean_ws10 < 0, NA_real_,scalar_mean_ws10)) %>% 
+  rename(`Nitrogen dioxide (ppt)` = no2_ppt_corr,
+         `Ozone (ppb)` = o3_ppb,
+         # WS = scalar_mean_ws10,
+         # WD = scalar_mean_wd10,
+         `RH (%)` = mean_rh,
+         `Radon (mBq/m3)` = radon,
+         `Methane (ppb)` = ch4_ppb,
+         `Carbon monoxide (ppb)` = co_ppb) %>% 
+  pivot_longer(c(`Nitrogen dioxide (ppt)`,`Ozone (ppb)`,`WS (km/h)`,WD,`RH (%)`,
+                 `Carbon monoxide (ppb)`,`Methane (ppb)`,`Radon (mBq/m3)`)) %>% 
+  ggplot(aes(value,no_night,col = name)) +
+  theme_bw() +
+  geom_point(size = 2,col = "springgreen4") +
+  # scale_colour_manual(values = c("springgreen4","goldenrod1")) +
+  geom_smooth(method = "lm",col = "darkorange",se = F,alpha = 0.2) +
+  # scale_colour_manual(values = c("darkorange","firebrick4","navy","steelblue1","springgreen4",
+                                 # "goldenrod1","deepskyblue3","darkolivegreen3")) +
+  labs(x = NULL,
+       y = "Baseline nighttime NO (ppt)",
+       col = NULL) +
+  # scale_x_datetime(date_breaks = "1 month",date_labels = "%b") +
+  facet_wrap(~name,scales = "free") +
+  theme(legend.position = "None",
+        text = element_text(size = 16)) +
+  # xlim(40,100) +
+  NULL
+
+# ggsave("nighttime_no_correlations.png",
+#        path = "~/Writing/Thesis/Chapter 5 (NOx KCG)/Images",
+#        height = 15.09,
+#        width = 29.21,
+#        units = "cm")
 
 night_zeroed %>% 
   filter(radon < 100) %>%
-  ggplot(aes(radon,no_night)) +
+  ggplot(aes(date,no_night)) +
   geom_point()
 
 #comparing night correction to kcg correction and uncorrected data
 night_zeroed %>%
-  pivot_longer(c(no_uncorrected,no_corr1,no_night_corrected)) %>% 
+  pivot_longer(c(no_ppt,no_ppt_corr1,no_night_corrected)) %>% 
   filter(radon < 100) %>% 
   ggplot(aes(date,value,col = name)) +
   geom_point()
+
+
+# KCG PSS -----------------------------------------------------------------
+
+kcg_pss = night_zeroed %>% 
+  mutate(o3_molecule_cm3 = ppt_to_molecules_cm3(o3_ppb * 1000),
+         hour = hour(date),
+         no_molecule_cm3_uncorr = ppt_to_molecules_cm3(no_ppt),
+         no_molecule_cm3_corr = ppt_to_molecules_cm3(no_ppt_corr1),
+         no_molecule_cm3_night_corr = ppt_to_molecules_cm3(no_night_corrected)) %>% 
+  filter(hour >= 10 & hour <= 14,
+         radon < 100) %>%
+  mutate(no2_pss_uncorr = molecules_cm3_to_ppt((o3_molecule_cm3*no_molecule_cm3_uncorr*k)/jno2_albedo),
+         no2_pss_corr = molecules_cm3_to_ppt((o3_molecule_cm3*no_molecule_cm3_corr*k)/jno2_albedo),
+         no2_pss_night_corr = molecules_cm3_to_ppt((o3_molecule_cm3*no_molecule_cm3_night_corr*k)/jno2_albedo))
+
+kcg_pss %>% 
+  pivot_longer(c(no2_pss_corr,no2_pss_night_corr,no2_pss_uncorr)) %>%
+  ggplot(aes(no2_ppt_corr,value,col = name)) +
+  theme_bw() +
+  geom_point() +
+  geom_abline(col = "red") +
+  labs(x = expression(Measured~NO[2]~(ppt)),
+       y = expression(PSS~NO[2]~(ppt)),
+       col = NULL) +
+  theme(legend.position = "top") +
+  ylim(0,200) +
+  xlim(0,200) +
+  NULL
+
+# ggsave("xy_plot_pss_larger.png",
+#        path = "output/new_kcg_data_plots",
+#        height = 12,
+#        width = 30,
+#        units = "cm")
