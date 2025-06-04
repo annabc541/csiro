@@ -1,7 +1,10 @@
 library(tidyverse)
+library(lubridate)
 library(janitor)
-library(openair)
 library(zoo)
+library(openair)
+library(ggh4x)
+library(ggpubr)
 library(plotly)
 
 Sys.setenv(TZ='UTC')
@@ -157,6 +160,8 @@ kcg_dat_bl = kcg_dat %>%
                                date >= "2022-09-27" & date < "2022-09-28" ~ NA_real_,#inlet blockage
                                date >= "2022-11-16" & date < "2022-11-30" ~ NA_real_,
                                TRUE ~ no_ppt),
+         no_ppt_bl_all = case_when(bl_flag == "Not baseline" ~ NA_real_,
+                                   TRUE ~ no_ppt_bl),
          no2_ppt_bl = case_when(# bl_flag == "Not baseline" ~ NA_real_,
                                 # joint_flag == "Joint flag" ~ NA_real_,
                                 radon > 100 ~ NA_real_,
@@ -176,8 +181,9 @@ kcg_dat_bl = kcg_dat %>%
 kcg_dat_bl %>% 
   mutate(hour = hour(date)) %>% 
   filter(is.na(no_ppt_corr1) == F,
+         radon <= 100,
          # bl_flag == "Baseline",
-         # hour >= 22 | hour <= 4
+         hour >= 22 | hour <= 4
          ) %>%
   rename(`RH (%)` = mean_rh,
          `Rainfall (mm)` = rainfall_mm,
@@ -186,20 +192,28 @@ kcg_dat_bl %>%
          `Carbon monoxide (ppb)` = co_ppb,
          `CCN (counts/m3)` = ccnc,
          WD = wd,
-         `WS (km/h)` = ws) %>% 
-  pivot_longer(c(`WS (km/h)`,WD,`Rainfall (mm)`,`Carbon monoxide (ppb)`,`Radon (mBq/m3)`,`CCN (counts/m3)`)) %>% 
-  ggplot(aes(no_ppt_bl,value)) +
+         `WS (km/h)` = ws,
+         `Full baseline` = no_ppt_bl_all,
+         `Radon baseline` = no_ppt_bl) %>% 
+  pivot_longer(c(`Radon baseline`,`Full baseline`),names_to = "no_names",values_to = "no_values") %>% 
+  pivot_longer(c(`WS (km/h)`,WD,`Rainfall (mm)`,`Carbon monoxide (ppb)`,`Radon (mBq/m3)`,`CCN (counts/m3)`)) %>%
+  ggplot(aes(no_values,value)) +
   geom_point() +
-  facet_wrap(~name,scales = "free") +
+  facet_nested_wrap(vars(name,no_names),
+                    scales = "free",
+                    ncol = 6,
+                    axes = "margins") +
   labs(x = "Baseline nighttime NO (ppt)",
-       y = NULL) +
+       y = NULL,
+       col = "Baseline definition") +
+  theme(legend.position = "top") +
   NULL
 
-# ggsave("baseline_joint_nighttime_no_correlation.png",
-#        path = "output/paper_plots",
-#        height = 12,
-#        width = 29,
-#        units = "cm")
+ggsave("nighttime_baseline_definition_correlation.png",
+       path = "output/paper_plots",
+       height = 12,
+       width = 29,
+       units = "cm")
 
 # Calculating nighttime NO offset -----------------------------------------
 
@@ -228,7 +242,8 @@ night_avg = night_flagged %>%
          # joint_flag == "Not joint flag"
          ) %>% 
   group_by(id) %>% 
-  summarise(no_night = mean(no_ppt_bl,na.rm = T),
+  summarise(no_night_bl = mean(no_ppt_bl,na.rm = T),
+            no_night_bl_all = mean(no_ppt_bl_all,na.rm = T),
             co_night = mean(co_ppb,na.rm = T),
             ccnc_night = mean(ccnc,na.rm = T),
             radon_night = mean(radon,na.rm = T),
@@ -241,9 +256,11 @@ night_avg = night_flagged %>%
 night_zeroed = night_zeroing %>% 
   mutate(idx = 1:nrow(.)) %>% 
   left_join(night_avg) %>% 
-  mutate(no_night_inter = na.approx(no_night,na.rm = F)) %>% 
-  fill(no_night_inter,.direction = "up") %>% 
-  mutate(no_night_corrected = no_ppt_bl - no_night_inter) 
+  mutate(no_night_inter_bl = na.approx(no_night_bl,na.rm = F),
+         no_night_inter_bl_all = na.approx(no_night_bl_all,na.rm = F)) %>% 
+  fill(no_night_inter_bl_all,no_night_inter_bl,.direction = "up") %>% 
+  mutate(no_night_corr_bl = no_ppt_bl - no_night_inter_bl,
+         no_night_corr_bl_all = no_ppt_bl_all - no_night_inter_bl_all) 
   # select(date:no2_ppt_corr,no_ppt_bl,no2_ppt_bl,no_night,no_night_inter,no_night_corrected,bl_flag,wd,ws,mean_rh,jno2_mean,rainfall_mm:ch4_ppb,co_ppb,co2_dry,ccnc,jno2_albedo,temp_k)
 
 #remove(night_avg,night_flagged,night_zeroing,nights)
@@ -252,7 +269,7 @@ night_zeroed = night_zeroing %>%
 
 #seeing if nighttime NO correlates with anything
 night_zeroed %>% 
-  filter(is.na(no_night) == F) %>%
+  filter(is.na(no_night_bl) == F) %>%
   rename(`RH (%)` = mean_rh,
          `Rainfall (mm)` = rainfall_mm_night,
          `Radon (mBq/m3)` = radon_night,
@@ -260,17 +277,21 @@ night_zeroed %>%
          `Carbon monoxide (ppb)` = co_night,
          `CCN (counts/m3)` = ccnc_night,
          WD = wd,
-         `WS (km/h)` = ws) %>% 
-  pivot_longer(c(`WS (km/h)`,WD,`Rainfall (mm)`,`Carbon monoxide (ppb)`,`Radon (mBq/m3)`,`CCN (counts/m3)`)) %>% 
-  ggplot(aes(no_night,value)) +
-  theme_bw() +
-  geom_point(size = 2) +
-  labs(y = NULL,
-       x = "Baseline nighttime NO (ppt)",
-       col = NULL) +
-  facet_wrap(~name,scales = "free") +
-  theme(legend.position = "top",
-        text = element_text(size = 16)) +
+         `WS (km/h)` = ws,
+         `Full baseline` = no_night_bl_all,
+         `Radon baseline` = no_night_bl) %>% 
+  pivot_longer(c(`Radon baseline`,`Full baseline`),names_to = "no_names",values_to = "no_values") %>% 
+  pivot_longer(c(`WS (km/h)`,WD,`Rainfall (mm)`,`Carbon monoxide (ppb)`,`Radon (mBq/m3)`,`CCN (counts/m3)`)) %>%
+  ggplot(aes(no_values,value)) +
+  geom_point() +
+  facet_nested_wrap(vars(name,no_names),
+                    scales = "free",
+                    ncol = 6,
+                    axes = "margins") +
+  labs(x = "Baseline nighttime NO (ppt)",
+       y = NULL,
+       col = "Baseline definition") +
+  theme(legend.position = "top") +
   NULL
 
 # ggsave("nighttime_no_baseline.png",
@@ -282,53 +303,59 @@ night_zeroed %>%
 #comparing uncorrected and nighttime corrected NO
 night_zeroed %>% 
   filter(no_ppt < 200) %>%
-  rename(Corrected = no_night_corrected,
-         Uncorrected = no_ppt_bl) %>% 
-  pivot_longer(c(Corrected,Uncorrected)) %>% 
+  rename(`Full baseline` = no_night_corr_bl_all,
+         `Radon baseline` = no_night_corr_bl) %>%
+  pivot_longer(c(`Full baseline`,`Radon baseline`),names_to = "corr_names",values_to = "corr_values") %>%
+  pivot_longer(c(no_night_bl_all,no_night_bl),names_to = "night_names",values_to = "night_values") %>% 
+  pivot_longer(c(no_ppt_bl,no_ppt_bl_all),names_to = "uncorr_names",values_to = "uncorr_values") %>% 
+  pivot_longer(c(no_night_inter_bl,no_night_inter_bl_all),names_to = "inter_names",values_to = "inter_values") %>% 
+  mutate(flag = case_when(corr_names == "Radon baseline" & night_names == "no_night_bl" & uncorr_names == "no_ppt_bl" & inter_names == "no_night_inter_bl" ~ "bl",
+                          corr_names == "Full baseline" & night_names == "no_night_bl_all" & uncorr_names == "no_ppt_bl_all" & inter_names == "no_night_inter_bl_all" ~ "all")) %>% 
+  filter(is.na(flag) == F) %>% 
   ggplot() +
   theme_bw() +
-  geom_point(aes(date,value,col = name)) +
-  geom_path(aes(date,no_night_inter)) +
+  geom_point(aes(date,corr_values,col = "Corrected")) +
+  geom_point(aes(date,uncorr_values,col = "Uncorrected")) +
+  # geom_point(aes(date,night_values),col = "black") +
+  geom_path(aes(date,inter_values)) +
+  facet_grid(rows = vars(corr_names),scales = "free") +
+  # geom_path(aes(date,no_night_inter)) +
   labs(x = NULL,
        y = "NO (ppt)",
        col = NULL) +
   theme(legend.position = "top") +
   scale_x_datetime(date_breaks = "1 month",date_labels = "%b %Y")
 
-# ggsave("corr_vs_uncorr_radon_baseline.png",
-#        path = "output/paper_plots",
-#        height = 12,
-#        width = 29,
-#        units = "cm")
+ggsave("corr_vs_uncorr_radon_baseline_definitions.png",
+       path = "output/paper_plots",
+       height = 12,
+       width = 29,
+       units = "cm")
 
 #diurnals
 diurnal_dat = night_zeroed %>% 
-  rename(no_uncorr = no_ppt_bl,
-         no_corr = no_night_corrected) %>% 
+  # rename(no_uncorr = no_ppt_bl,
+  #        no_corr = no_night_corrected) %>% 
   mutate(hour = hour(date)) %>% 
   group_by(hour) %>% 
-  summarise(across(c(no_corr,no_uncorr),list(mean = ~mean(.,na.rm = T),
-                                             se = ~sd(., na.rm = TRUE) / sqrt(length(.)),
-                                             count = ~sum(!is.na(.))))) %>% 
+  summarise(across(c(no_ppt_bl,no_ppt_bl_all,no_night_corr_bl,no_night_corr_bl_all),
+                   list(mean = ~mean(.,na.rm = T),
+                        count = ~sum(!is.na(.))))) %>% 
   ungroup()
 
 diurnal_dat %>% 
-  mutate(uncorr_max = no_uncorr_mean + no_uncorr_se,
-         uncorr_min = no_uncorr_mean - no_uncorr_se,
-         corr_max = no_corr_mean + no_corr_se,
-         corr_min = no_corr_mean - no_corr_se,) %>% 
-  rename(Uncorrected = no_uncorr_mean,
-         Corrected = no_corr_mean) %>% 
-  pivot_longer(c(Corrected,Uncorrected)) %>%  
-  pivot_longer(cols = c(uncorr_max,corr_max),values_to = "max_err_v",names_to = "max_err_n") %>% 
-  pivot_longer(cols = c(uncorr_min,corr_min),values_to = "min_err_v",names_to = "min_err_n") %>% 
-  mutate(flag = case_when(name == "Uncorrected" & min_err_n == "uncorr_min" & max_err_n == "uncorr_max" ~ "uncorr",
-                          name == "Corrected" & min_err_n == "corr_min" & max_err_n == "corr_max" ~ "corr")) %>% 
-  filter(is.na(flag) == F) %>% 
+  rename(`Full baseline` = no_night_corr_bl_all_mean,
+         `Radon baseline` = no_night_corr_bl_mean) %>% 
+  pivot_longer(c(no_ppt_bl_mean,no_ppt_bl_all_mean),names_to = "names_uncorr",values_to = "values_uncorr") %>%  
+  pivot_longer(c(`Full baseline`,`Radon baseline`),names_to = "names_corr",values_to = "values_corr") %>%  
+  mutate(flag = case_when(names_uncorr == "no_ppt_bl_mean" & names_corr == "Radon baseline" ~ "bl",
+                          names_uncorr == "no_ppt_bl_all_mean" & names_corr == "Full baseline" ~ "all")) %>% 
+  filter(!is.na(flag)) %>% 
   ggplot() +
   theme_bw() +
-  geom_path(aes(hour,value,col = name)) +
-  geom_ribbon(aes(hour,ymin = min_err_v,ymax = max_err_v,fill = name),alpha = 0.25) +
+  geom_path(aes(hour,values_corr,col = "Corrected"),size = 1) +
+  geom_path(aes(hour,values_uncorr,col = "Uncorrected"),size = 1) +
+  facet_wrap(~names_corr) +
   labs(x = "Hour of day",
        y = "NO (ppt)",
        col = NULL,
@@ -337,7 +364,7 @@ diurnal_dat %>%
   scale_x_continuous(breaks = c(0,4,8,12,16,20)) +
   NULL
 
-ggsave("corr_vs_uncorr_diurnal_radon_baseline.png",
+ggsave("corr_vs_uncorr_diurnal_baseline_def.png",
        path = "output/paper_plots",
        height = 12,
        width = 29,
