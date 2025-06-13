@@ -183,7 +183,7 @@ kcg_dat_bl %>%
   filter(is.na(no_ppt_corr1) == F,
          radon <= 100,
          # bl_flag == "Baseline",
-         hour >= 22 | hour <= 4
+         hour >= 21 | hour <= 4
          ) %>%
   rename(`RH (%)` = mean_rh,
          `Rainfall (mm)` = rainfall_mm,
@@ -197,29 +197,33 @@ kcg_dat_bl %>%
          `Radon baseline` = no_ppt_bl) %>% 
   pivot_longer(c(`Radon baseline`,`Full baseline`),names_to = "no_names",values_to = "no_values") %>% 
   pivot_longer(c(`WS (km/h)`,WD,`Rainfall (mm)`,`Carbon monoxide (ppb)`,`Radon (mBq/m3)`,`CCN (counts/m3)`)) %>%
-  ggplot(aes(no_values,value)) +
+  ggplot(aes(date,no_values,col = bl_flag)) +
   geom_point() +
-  facet_nested_wrap(vars(name,no_names),
-                    scales = "free",
-                    ncol = 6,
-                    axes = "margins") +
-  labs(x = "Baseline nighttime NO (ppt)",
-       y = NULL,
-       col = "Baseline definition") +
+  # facet_nested_wrap(vars(name,no_names),
+  #                   scales = "free",
+  #                   ncol = 6,
+  #                   axes = "margins") +
+  # labs(x = "Baseline nighttime NO (ppt)",
+  #      y = NULL,
+  #      col = "Baseline definition") +
   theme(legend.position = "top") +
   NULL
 
-ggsave("nighttime_baseline_definition_correlation.png",
-       path = "output/paper_plots",
-       height = 12,
-       width = 29,
-       units = "cm")
+# ggsave("nighttime_baseline_definition_correlation.png",
+#        path = "output/paper_plots",
+#        height = 12,
+#        width = 29,
+#        units = "cm")
 
 # Calculating nighttime NO offset -----------------------------------------
 
 night_zeroing = kcg_dat_bl %>% 
   mutate(hour = hour(date),
-         night_flag = ifelse(hour >= 22 | hour < 4,1,0))
+         # night_flag = ifelse(hour >= 22 | hour < 4,1,0),
+         night_flag = case_when(date <= "2022-04-03" & hour >= 23 | date <= "2022-04-03" & hour < 3 ~ 1,
+                                date >= "2022-10-02" & hour >= 23 | date >= "2022-10-02" & hour < 3 ~ 1,
+                                between(date,as.POSIXct("2022-04-03"),as.POSIXct("2022-10-02")) & hour >= 22 | between(date,as.POSIXct("2022-04-03"),as.POSIXct("2022-10-02")) & hour < 4 ~ 1,
+                                TRUE ~ 0))
 
 nights = rle(night_zeroing$night_flag) %>%
   tidy_rle() %>% 
@@ -326,11 +330,11 @@ night_zeroed %>%
   theme(legend.position = "top") +
   scale_x_datetime(date_breaks = "1 month",date_labels = "%b %Y")
 
-ggsave("corr_vs_uncorr_radon_baseline_definitions.png",
-       path = "output/paper_plots",
-       height = 12,
-       width = 29,
-       units = "cm")
+# ggsave("corr_vs_uncorr_radon_baseline_definitions.png",
+#        path = "output/paper_plots",
+#        height = 12,
+#        width = 29,
+#        units = "cm")
 
 #diurnals
 diurnal_dat = night_zeroed %>% 
@@ -364,11 +368,41 @@ diurnal_dat %>%
   scale_x_continuous(breaks = c(0,4,8,12,16,20)) +
   NULL
 
-ggsave("corr_vs_uncorr_diurnal_baseline_def.png",
-       path = "output/paper_plots",
-       height = 12,
-       width = 29,
-       units = "cm")
+# ggsave("corr_vs_uncorr_diurnal_baseline_def.png",
+#        path = "output/paper_plots",
+#        height = 12,
+#        width = 29,
+#        units = "cm")
+
+
+# Seasonal diurnals -------------------------------------------------------
+
+night_zeroing %>% 
+  filter(night_flag == 1) %>% 
+  ggplot(aes(date,hour)) +
+  geom_point()
+
+diurnal_dat = night_zeroed %>% 
+  # rename(no_uncorr = no_ppt_bl,
+  #        no_corr = no_night_corrected) %>% 
+  mutate(hour = hour(date),
+         month = month(date),
+         season = case_when(between(month,3,5) ~ "Autumn",
+                            between(month,6,8) ~ "Winter",
+                            between(month,9,11) ~ "Spring",
+                            month == 12 | month <= 2 ~ "Summer")) %>% 
+  group_by(hour,season) %>% 
+  summarise(across(c(no_ppt_bl,no_ppt_bl_all,no_night_corr_bl,no_night_corr_bl_all),
+                   list(mean = ~mean(.,na.rm = T),
+                        count = ~sum(!is.na(.))))) %>% 
+  ungroup()
+
+diurnal_dat %>% 
+  # pivot_longer(c(no_night_corr_bl_mean,no_night_corr_bl_all_mean)) %>% 
+  ggplot(aes(hour,no_night_corr_bl_all_mean,col = no_night_corr_bl_all_count)) +
+  facet_wrap(~season) +
+  geom_path(size = 1) +
+  scale_colour_viridis_c()
 
 # Nighttime NO and minima NO2 ---------------------------------------------
 
