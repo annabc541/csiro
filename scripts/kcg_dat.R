@@ -299,7 +299,7 @@ night_zeroed %>%
   NULL
 
 # ggsave("nighttime_no_baseline.png",
-#        path = "output/paper_plots",
+#        path = "output/kcg_plots25",
 #        height = 13,
 #        width = 20,
 #        units = "cm")
@@ -374,6 +374,21 @@ diurnal_dat %>%
 #        width = 29,
 #        units = "cm")
 
+#saving ggplotly as html file
+
+g = night_zeroed %>% 
+  rename(`Nighttime baseline NO` = no_night_bl) %>% 
+  ggplot(aes(date,`Nighttime baseline NO`)) +
+  geom_point(size = 2) +
+  labs(x = "Date",
+       y = "Nighttime baseline NO (radon baseline)",
+       title = "Radon baseline definition") +
+  scale_x_datetime(date_breaks = "1 month",date_labels = "%b %y") +
+  theme(text = element_text(size = 18))
+
+fig = ggplotly(g)
+
+#htmlwidgets::saveWidget(fig,"nighttime_no_radon_baseline.html")
 
 # Seasonal diurnals -------------------------------------------------------
 
@@ -387,10 +402,10 @@ diurnal_dat = night_zeroed %>%
   #        no_corr = no_night_corrected) %>% 
   mutate(hour = hour(date),
          month = month(date),
-         season = case_when(between(month,3,5) ~ "Autumn",
-                            between(month,6,8) ~ "Winter",
-                            between(month,9,11) ~ "Spring",
-                            month == 12 | month <= 2 ~ "Summer")) %>% 
+         season = case_when(between(month,3,5) ~ "Autumn (MAM)",
+                            between(month,6,8) ~ "Winter (JJA)",
+                            between(month,9,11) ~ "Spring (SON)",
+                            month == 12 | month <= 2 ~ "Summer (DJF)")) %>% 
   group_by(hour,season) %>% 
   summarise(across(c(no_ppt_bl,no_ppt_bl_all,no_night_corr_bl,no_night_corr_bl_all),
                    list(mean = ~mean(.,na.rm = T),
@@ -402,7 +417,19 @@ diurnal_dat %>%
   ggplot(aes(hour,no_night_corr_bl_all_mean,col = no_night_corr_bl_all_count)) +
   facet_wrap(~season) +
   geom_path(size = 1) +
-  scale_colour_viridis_c()
+  scale_colour_viridis_c() +
+  labs(y = "Baseline NO (nighttime corrected)",
+         x = "Hour of day",
+         col = "Number of\ndatapoints",
+       title = "Full baseline NO seasonal diurnals") +
+  theme_bw() +
+  theme(text = element_text(size = 16))
+
+# ggsave("no_corr_baseline_seasonal_diurnal.png",
+#        path = "output/kcg_plots25",
+#        height = 13,
+#        width = 20,
+#        units = "cm")
 
 # Nighttime NO and minima NO2 ---------------------------------------------
 
